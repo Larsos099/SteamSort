@@ -18,7 +18,7 @@ public:
 
         std::string response;
 
-        curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+        curl_easy_setopt(curl, CURLOPT_URL, uri.c_str());
         curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION,
                          +[](void* ptr, size_t size, size_t nmemb, void* userdata) -> size_t {
                              std::string* str = (std::string*)userdata;

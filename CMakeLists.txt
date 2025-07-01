@@ -18,6 +18,7 @@ qt_add_executable(SteamSorter
     process.hpp
     process.cpp
     process.cpp
+    worker.hpp worker.cpp
 )
 
 target_link_libraries(SteamSorter
