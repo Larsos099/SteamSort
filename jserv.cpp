@@ -1,25 +1,25 @@
 #include "jserv.hpp"
-
+#include <QDebug>
 
 void JServ::buildGamesJSON(const json &j) {
-
-    std::string name = j["name"].get<std::string>();
-    auto categories = j["categories"];
-    auto genres = j["genres"];
-    auto appid = j["appid"].get<std::string>();
-    json catArray = json::array();
-    for (auto& cat : categories) {
-        catArray.push_back(cat["description"]);
+    qDebug() << j.dump(4);
+    std::string appid = j["steam_appid"].get<std::string>();
+    std::string gameName = j["name"].get<std::string>();
+    std::vector<std::string> cDes{};
+    std::vector<std::string> gDes{};
+    for(const auto &c : j["categories"]) {
+        cDes.emplace_back(c["description"]);
     }
-
-    json genreArray = json::array();
-    for (auto& gen : genres) {
-        genreArray.push_back(gen["description"]);
+    for(const auto &g : j["genres"]) {
+        gDes.emplace_back(g["description"]);
     }
-
-    final["games"][name]["categories"] = catArray;
-    final["games"][name]["genres"] = genreArray;
-    final["games"][name]["appid"] = {appid};
+    json js;
+    js["games"][gameName] = {
+        {"appid", appid},
+        {"categories", cDes},
+        {"genres", gDes}
+    };
+    final = std::move(js);
 
 }
 json JServ::exportJSON() {
