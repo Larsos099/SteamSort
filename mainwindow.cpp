@@ -96,7 +96,7 @@ void MainWindow::on_pushButton_6_clicked()
     Threader t(THREAD_DETACH);
     for(const auto &element : yeah) {
         t.run<void>([element, this, &allReceived]() {
-            std::string appID{element["appid"].get<std::string>()};
+            std::string appID{element["steam_appid"].get<std::string>()};
             HttpRequest h;
             h.SetURL(steamURL + appID);
             json res = h.JSONResponse();
@@ -108,11 +108,8 @@ void MainWindow::on_pushButton_6_clicked()
                     std::lock_guard<std::mutex> lock(responseMutex);
                     for(const auto &it : responses) {
                         ui->textEdit->append(QString::fromStdString(it.dump(4)));
-
                     }
-                    JServ j;
-                    j.buildGamesJSON(responses[5]["data"]);
-                    ui->textEdit->setText(QString::fromStdString(j.exportJSON().dump(4)));
+                    // qDebug() << responses[0].dump(4);
                 }, Qt::QueuedConnection);
             }
 
