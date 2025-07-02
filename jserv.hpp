@@ -8,7 +8,6 @@ class JServ {
 public:
     JServ() = default;
     void buildGamesJSON(const json &j);
-    void rebuildJSON();
     void clearJSON();
     json exportJSON();
 private:

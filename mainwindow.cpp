@@ -3,6 +3,7 @@
 #include "jsonhandler.hpp"
 #include "process.hpp"
 #include "HttpRequest.hpp"
+#include "jserv.hpp"
 #include <windows.h>
 #include <mutex>
 #include "threader.hpp"
@@ -107,6 +108,9 @@ void MainWindow::on_pushButton_6_clicked()
                     std::lock_guard<std::mutex> lock(responseMutex);
                     for(const auto &it : responses) {
                         ui->textEdit->append(QString::fromStdString(it.dump(4)));
+                        JServ j;
+                        j.buildGamesJSON(responses[0]);
+                        ui->textEdit->setText(QString::fromStdString(j.exportJSON().dump(4)));
                     }
                 }, Qt::QueuedConnection);
             }
