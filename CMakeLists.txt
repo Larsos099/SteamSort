@@ -19,6 +19,7 @@ qt_add_executable(SteamSorter
     process.cpp
     process.cpp
     threader.hpp
+    jserv.hpp jserv.cpp
 
 
 )

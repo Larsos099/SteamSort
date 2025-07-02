@@ -14,12 +14,12 @@ public:
     void run(std::function<T()> func) {
         if(static_cast<bool>(threadingMode)) {
             std::thread([f = std::move(func)]() mutable {
-                f();
+            f();
             }).detach();
         }
         else {
             std::thread([f = std::move(func)]() mutable {
-                f();
+            f();
             }).join();
         }
 

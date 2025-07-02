@@ -4,11 +4,12 @@
 #include "process.hpp"
 #include "HttpRequest.hpp"
 #include <windows.h>
-#include <future>
+#include <mutex>
 #include "threader.hpp"
 std::string AppData{};
 std::string steamURL{"https://store.steampowered.com/api/appdetails?appids="};
 std::vector<json> responses{};
+std::mutex responseMutex{};
 std::vector<json> yeah{};
 json GamesJSON{};
 MainWindow::MainWindow(QWidget *parent)
@@ -30,7 +31,7 @@ MainWindow::MainWindow(QWidget *parent)
     ui->setupUi(this);
 
 }
-std::string jsonPath = AppData + "\\SteamSort\\JSONS\\games.json";
+std::string jsonPath = AppData + "\\SteamSort\\games.json";
 MainWindow::~MainWindow()
 {
     delete ui;
@@ -71,7 +72,7 @@ void MainWindow::on_pushButton_3_clicked()
 
 void MainWindow::on_pushButton_4_clicked()
 {
-    bool worked = fs::create_directories(jsonPath);
+    bool worked = fs::create_directories(AppData + "\\SteamSort");
     if(worked) {
         ui->textEdit->setText("hölle ja " + QString::fromStdString(std::to_string(worked)));
     }
@@ -88,63 +89,31 @@ void MainWindow::on_pushButton_5_clicked()
 
 void MainWindow::on_pushButton_6_clicked()
 {
-    if(!fs::exists(jsonPath)) {
-        std::ofstream json_file(jsonPath);
-        if(!json_file.is_open()) {
-            qDebug() << "leck eier";
-        }
-        else {
-            json_file.close();
-        }
-    }
-    else {
-        // Vector to hold futures for async calls
-        std::vector<std::future<json>> futures;
-
-        for(const auto &i : yeah) {
-            // Launch async task, each with its own HttpRequest instance
-            futures.push_back(std::async(std::launch::async, [this, i]() -> json {
-                HttpRequest h;
-                h.SetURL(steamURL + i["appid"].get<std::string>());
-                json jn = h.JSONResponse();
-
-                // Manipulate jn here safely
-                jn["name"] = i["name"];  // Or whatever you want
-
-                json categories = json::array();
-                for (const auto& item : jn["categories"]) {
-                    if (item.contains("description")) {
-                        categories.push_back(item["description"]);
+    bool allReceived = false;
+    responses.clear();
+    ui->textEdit->clear();
+    Threader t(THREAD_DETACH);
+    for(const auto &element : yeah) {
+        t.run<void>([element, this, &allReceived]() {
+            std::string appID{element["appid"].get<std::string>()};
+            HttpRequest h;
+            h.SetURL(steamURL + appID);
+            json res = h.JSONResponse();
+            std::lock_guard<std::mutex> lock(responseMutex);
+            responses.emplace_back(res);
+            allReceived = (responses.size() == yeah.size());
+            if(allReceived) {
+                QMetaObject::invokeMethod(this, [this]() {
+                    std::lock_guard<std::mutex> lock(responseMutex);
+                    for(const auto &it : responses) {
+                        ui->textEdit->append(QString::fromStdString(it.dump(4)));
                     }
-                }
-                jn["categories"] = categories;
+                }, Qt::QueuedConnection);
+            }
 
-                return jn;
-            }));
-        }
-
-        // Collect all results
-        json allResults = json::array();
-        for(auto &fut : futures) {
-            allResults.push_back(fut.get());
-        }
-
-        // Write to file once, after all threads finish
-        std::ofstream outFile(jsonPath);
-        if(!outFile.is_open()) {
-            qDebug() << "leck eier";
-        }
-        else {
-            outFile << allResults.dump(4);
-            outFile.close();
-        }
+        });
     }
 
-    // Now read file and put content into textEdit
-    std::ifstream inStream(jsonPath);
-    QString contents = QString::fromStdString(std::string((std::istreambuf_iterator<char>(inStream)),
-                                                          std::istreambuf_iterator<char>()));
-    ui->textEdit->setText(contents);
 
 }
 
