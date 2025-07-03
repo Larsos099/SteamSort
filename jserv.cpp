@@ -67,8 +67,8 @@
                 }
 
                 auto it = j.begin();
-                if (!it.value().contains("data")) {
-                    qDebug() << "No data field found";
+                if (!it.value().contains("data") || it.value()["data"].is_null()) {
+                    qDebug() << "No data field or null data";
                     return;
                 }
 
@@ -113,4 +113,10 @@
     }
     void JServVector::clearJSON() {
         final = json();
+    }
+
+    json JServVector::buildLocationsJSON(const std::vector<std::string>& loc) {
+        return json{
+            {"locations", loc}
+        };
     }

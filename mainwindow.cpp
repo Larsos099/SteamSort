@@ -6,31 +6,156 @@
 #include "jserv.hpp"
 #include "Progresser.hpp"
 #include "threader.hpp"
+#include "jsonparser.hpp"
 #include <windows.h>
+#include <QStandardItemModel>
+#include <sstream>
+#include <QInputDialog>
+#include <QMessageBox>
 #include <mutex>
+std::vector<std::string> split(const std::string& str, char delimiter) {
+    std::vector<std::string> result;
+    std::stringstream ss(str);
+    std::string item;
+
+    while (std::getline(ss, item, delimiter)) {
+        result.push_back(item);
+    }
+
+    return result;
+}
+std::vector<std::string> steamLibLocations{};
+std::vector<json> jVec{};
 std::string AppData{};
 std::string steamURL{"https://store.steampowered.com/api/appdetails?appids="};
-std::vector<json> responses{};
+
 std::mutex responseMutex{};
 std::mutex jsonMutex{};
-std::vector<json> yeah{};
-json GamesJSON{};
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
     , ui(new Ui::MainWindow)
-    , jServVector(new JServVector())  // initialize here
+    , jServVector(new JServVector())
 {
     const char* env = getenv("LOCALAPPDATA");
-    if (env == nullptr) {
-        qDebug() << "uhhmmm okay :(";
-        exit(2);
+    if (!env) {
+        throw std::runtime_error("LOCALAPPDATA not set");
     }
-    AppData = std::string(env);
-    JsonHandler jH("C:\\Program Files (x86)\\Steam\\steamapps");
-    yeah = jH.parseAllManifests();
-    ui->setupUi(this);
+    AppData = env; // 🛠️ FIX: AppData korrekt setzen
+    std::string folderLocation = AppData + "\\SteamSort";
+    std::string locationsFilePath = folderLocation + "\\locations.json";
 
+    if (!fs::exists(folderLocation)) {
+        fs::create_directories(folderLocation);
+    }
+
+    std::vector<std::string> paths;
+
+    if (!fs::exists(locationsFilePath)) {
+        QString qLocation = QInputDialog::getText(nullptr, "Steam Library location",
+                                                  "Location of your steam library: (multiple possible, separate with ;)");
+        if (qLocation.isEmpty()) {
+            QMessageBox::critical(nullptr, "Error", "You must enter at least one Steam library path.");
+            throw std::runtime_error("No Steam library location provided.");
+        }
+
+        paths = split(qLocation.toStdString(), ';');
+
+        JServVector jsV;
+        json locJson = jsV.buildLocationsJSON(paths);
+
+        std::ofstream locationsJson(locationsFilePath);
+        locationsJson << locJson.dump(4);
+        locationsJson.close();
+    } else {
+        std::ifstream locationsFile(locationsFilePath);
+        std::string content((std::istreambuf_iterator<char>(locationsFile)), std::istreambuf_iterator<char>());
+
+        try {
+            json jljf = json::parse(content);
+            paths = jljf["locations"].get<std::vector<std::string>>();
+        } catch (const json::parse_error& e) {
+            QMessageBox::critical(nullptr, "JSON Error", "Could not parse locations.json:\n" + QString::fromStdString(e.what()));
+            throw;
+        }
+    }
+
+    steamLibLocations = paths;
+
+    JsonHandlerVector jhv(paths);
+    jVec = jhv.parseAllManifests();
+    std::vector<json> responses;
+    std::atomic<int> doneCount{0};
+    const int total = static_cast<int>(jVec.size());
+
+    jServVector->clearJSON();
+
+    if (!progresser) {
+        progresser = new Progresser(300, 70, nullptr);
+        progresser->setWindowModality(Qt::ApplicationModal);
+        progresser->show();
+        progresser->raise();
+        progresser->setProgress(0);
+    }
+
+    connect(jServVector, &JServVector::progressUpdated, this, [this](int done, int total){
+        int percent = total ? (done * 100 / total) : 0;
+        progresser->setProgress(percent);
+    });
+
+    Threader t(THREAD_JOIN);
+
+    for (const auto& element : jVec) {
+        t.run<void>([&, element]() {
+            std::string appID;
+
+            if (!element.contains("appid") || element["appid"].is_null()) {
+                qWarning() << "Invalid or missing appid in element!";
+                doneCount.fetch_add(1);
+                emit jServVector->progressUpdated(doneCount.load(), total);
+                return;
+            }
+
+            if (element["appid"].is_string()) {
+                appID = element["appid"].get<std::string>();
+            } else if (element["appid"].is_number_integer()) {
+                appID = std::to_string(element["appid"].get<int>());
+            } else {
+                qWarning() << "Unsupported appid type!";
+                doneCount.fetch_add(1);
+                emit jServVector->progressUpdated(doneCount.load(), total);
+                return;
+            }
+
+            HttpRequest h;
+            h.SetURL(steamURL + appID);
+            json res = h.JSONResponse();
+            {
+                std::lock_guard<std::mutex> lock(responseMutex);
+                responses.emplace_back(std::move(res));
+            }
+
+            doneCount.fetch_add(1);
+            emit jServVector->progressUpdated(doneCount.load(), total);
+        });
+    }
+
+    // Main thread waits implicitly due to THREAD_JOIN policy
+    jServVector->setVec(responses);
+    jServVector->buildGamesJSON();
+
+    std::string outPath = AppData + "\\SteamSort\\games.json";
+    std::ofstream file(outPath);
+    if (!file) {
+        qWarning() << "Failed to open file for writing:" << QString::fromStdString(outPath);
+    } else {
+        file << jServVector->exportJSON().dump(4);
+        file.close();
+        qDebug() << "games.json successfully written to:" << QString::fromStdString(outPath);
+    }
+
+    QMessageBox::information(nullptr, "built games.json", "Successfully built games.json:\n" + QString::fromStdString(jServVector->exportJSON().dump(4)));
 }
+
 std::string jsonPath = AppData + "\\SteamSort\\games.json";
 MainWindow::~MainWindow()
 {
@@ -41,135 +166,5 @@ MainWindow::~MainWindow()
         progresser = nullptr;
     }
 }
-json jsonObjForTest{};
-void MainWindow::on_pushButton_clicked()
-{
-
-    if(yeah.size() < 1 ) {
-        qDebug() << "tfff??";
-        ui->textEdit->setPlainText("ja ka tbh HAHAHA");
-    }
-    else {
-        for(const auto &json : yeah) {
-            ui->textEdit->append(QString::fromStdString(json.dump(4)));
-        }
-
-    }
-
-
-
-}
-
-
-void MainWindow::on_pushButton_2_clicked()
-{
-    for(const auto &i : yeah) {
-        ui->textEdit->append(QString::fromStdString(i["appid"].get<std::string>()));
-    }
-}
-
-
-void MainWindow::on_pushButton_3_clicked()
-{
-    ui->textEdit->setText(QString::fromStdString(AppData));
-}
-
-
-void MainWindow::on_pushButton_4_clicked()
-{
-    bool worked = fs::create_directories(AppData + "\\SteamSort");
-    if(worked) {
-        ui->textEdit->setText("hölle ja " + QString::fromStdString(std::to_string(worked)));
-    }
-}
-
-
-void MainWindow::on_pushButton_5_clicked()
-{
-    Process proc;
-    proc.Exec("dir " + AppData + "\\SteamSort");
-    ui->textEdit->setText(QString::fromStdString(proc.output));
-}
-
-
-void MainWindow::on_pushButton_6_clicked()
-{
-    responses.clear();
-    ui->textEdit->clear();
-
-    // Show progress bar or create it if not existing
-    if (!progresser) {
-        progresser = new Progresser(300, 70, nullptr);
-        progresser->setWindowModality(Qt::ApplicationModal);
-        progresser->show();
-        progresser->raise();
-        progresser->setProgress(0);
-    }
-
-    std::atomic<int> doneCount{0};
-    const int total = static_cast<int>(yeah.size());
-
-    // Clear previous data in jServVector before new run
-    jServVector->clearJSON();
-    // We'll set responses after collecting
-
-    // Connect signal for progress update once
-    connect(jServVector, &JServVector::progressUpdated, this, [this](int done, int total){
-        int percent = total ? (done * 100 / total) : 0;
-        progresser->setProgress(percent);
-    });
-
-
-    Threader t(THREAD_JOIN);  // Join to wait for threads to finish
-
-    // Mutex to protect responses vector
-    std::mutex responseMutex;
-
-    for (const auto &element : yeah) {
-        t.run<void>([this, &element, &responseMutex, &doneCount, total]() {
-            std::string appID;
-
-            // get appid safely
-            if (element["appid"].is_string()) {
-                appID = element["appid"].get<std::string>();
-            } else if (element["appid"].is_number_integer()) {
-                appID = std::to_string(element["appid"].get<int>());
-            } else {
-                qWarning() << "Invalid appid type!";
-                doneCount.fetch_add(1);
-                return;
-            }
-
-            HttpRequest h;
-            h.SetURL(steamURL + appID);
-            json res = h.JSONResponse();
-
-            {
-                std::lock_guard<std::mutex> lock(responseMutex);
-                responses.emplace_back(std::move(res));
-            }
-
-            doneCount.fetch_add(1);
-        });
-    }
-
-    // All threads joined here (THREAD_JOIN)
-    // Now update UI on main thread
-
-    QMetaObject::invokeMethod(this, [this]() {
-        ui->textEdit->clear();
-        for (const auto &resp : responses) {  // accesses global directly
-            ui->textEdit->append(QString::fromStdString(resp.dump(4)));
-        }
-        jServVector->setVec(responses);
-        jServVector->buildGamesJSON();
-        qDebug() << QString::fromStdString(jServVector->exportJSON().dump(4));
-        ui->textEdit->setText(QString::fromStdString(jServVector->exportJSON().dump(4)));
-    }, Qt::QueuedConnection);
-
-}
-
-
-
 
 

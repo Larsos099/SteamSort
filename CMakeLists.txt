@@ -22,6 +22,7 @@ qt_add_executable(SteamSorter
     threader.hpp
     jserv.hpp jserv.cpp
     Progresser.hpp
+    jsonparser.hpp jsonparser.cpp
 
 
 )

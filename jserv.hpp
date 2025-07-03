@@ -34,7 +34,7 @@ public:
     explicit JServVector(std::vector<json> jsonV) : jV(std::move(jsonV)) {}
 
     JServVector() = default;
-
+    json buildLocationsJSON(const std::vector<std::string> &loc);
     void buildGamesJSON();
     void clearJSON();
     json exportJSON();

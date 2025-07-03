@@ -14,13 +14,25 @@ private:
     std::string steamAppsPath{};
     AcfParser *a = new AcfParser();
 public:
+    JsonHandler() = default;
     JsonHandler(std::string steamapps) : steamAppsPath(steamapps) {}
     ~JsonHandler() {
         delete a;
     }
-    std::unordered_map<std::string, std::string> readGameInfo(const std::string &gameName);
     std::vector<json> parseAllManifests();
     std::string getAppID(const json &appManifest);
+    void setLibPath(const std::string &path) {
+        steamAppsPath = path;
+    }
+};
+class JsonHandlerVector {
+private:
+    std::vector<std::string> steamAppsPathsVectors{};
+    JsonHandler j;
+public:
+    JsonHandlerVector() = default;
+    JsonHandlerVector(std::vector<std::string> steamLibVec) : steamAppsPathsVectors(steamLibVec) {};
+    std::vector<json> parseAllManifests();
 };
 
 #endif // JSONHANDLER_HPP

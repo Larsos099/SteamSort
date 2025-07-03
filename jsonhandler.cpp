@@ -16,3 +16,12 @@ std::vector<json> JsonHandler::parseAllManifests() {
 std::string JsonHandler::getAppID(const json &appManifest) {
     return appManifest["appid"].get<std::string>();
 }
+
+std::vector<json> JsonHandlerVector::parseAllManifests() {
+    std::vector<json> temp{};
+    for(const auto &e : steamAppsPathsVectors) {
+        j.setLibPath(e);
+        temp.insert(temp.end(), j.parseAllManifests());
+    }
+    return temp;
+}
