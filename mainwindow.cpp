@@ -4,13 +4,15 @@
 #include "process.hpp"
 #include "HttpRequest.hpp"
 #include "jserv.hpp"
+#include "Progresser.hpp"
+#include "threader.hpp"
 #include <windows.h>
 #include <mutex>
-#include "threader.hpp"
 std::string AppData{};
 std::string steamURL{"https://store.steampowered.com/api/appdetails?appids="};
 std::vector<json> responses{};
 std::mutex responseMutex{};
+std::mutex jsonMutex{};
 std::vector<json> yeah{};
 json GamesJSON{};
 MainWindow::MainWindow(QWidget *parent)
@@ -90,33 +92,79 @@ void MainWindow::on_pushButton_5_clicked()
 
 void MainWindow::on_pushButton_6_clicked()
 {
-    bool allReceived = false;
     responses.clear();
     ui->textEdit->clear();
+    if (!progresser) {
+        progresser = new Progresser(300, 70, nullptr);  // nullptr parent means top-level window
+        progresser->setWindowModality(Qt::ApplicationModal); // Blocks input to other windows if you want
+        progresser->show();
+        progresser->raise();
+        progresser->setProgress(0);
+    }
+    std::mutex responseMutex;
+    std::atomic<int> doneCount{0};
+    int total = static_cast<int>(yeah.size());
+
+    // Create JServVector with empty vector; we'll fill later
+    auto jServVector = new JServVector();
+
+    // Connect progressUpdated signal to your UI progress widget
+    connect(jServVector, &JServVector::progressUpdated, this, [this](int done, int total){
+        int percent = total ? (done * 100 / total) : 0;
+        // Example with QProgressBar
+        progresser->setProgress(percent);
+    });
+
     Threader t(THREAD_DETACH);
-    for(const auto &element : yeah) {
-        t.run<void>([element, this, &allReceived]() {
-            std::string appID{element["steam_appid"].get<std::string>()};
+
+    for (const auto& element : yeah) {
+        t.run<void>([this, &element, &responseMutex, &doneCount, total, jServVector]() {
+            std::string appID;
+            if (element["appid"].is_string()) {
+                appID = element["appid"].get<std::string>();
+            } else if (element["appid"].is_number_integer()) {
+                appID = std::to_string(element["appid"].get<int>());
+            } else {
+                qWarning() << "Invalid appid type!";
+                return;
+            }
+
             HttpRequest h;
             h.SetURL(steamURL + appID);
             json res = h.JSONResponse();
-            std::lock_guard<std::mutex> lock(responseMutex);
-            responses.emplace_back(res);
-            allReceived = (responses.size() == yeah.size());
-            if(allReceived) {
-                QMetaObject::invokeMethod(this, [this]() {
-                    std::lock_guard<std::mutex> lock(responseMutex);
-                    for(const auto &it : responses) {
-                        ui->textEdit->append(QString::fromStdString(it.dump(4)));
-                    }
-                    // qDebug() << responses[0].dump(4);
-                }, Qt::QueuedConnection);
+
+            {
+                std::lock_guard<std::mutex> lock(responseMutex);
+                responses.emplace_back(res);
             }
 
+            int done = ++doneCount;
+
+            // Once all responses are collected, update UI and start processing JSON
+            if (done == total) {
+                // Update vector inside JServVector *safely* from UI thread
+                QMetaObject::invokeMethod(this, [this, jServVector, &responseMutex]() {
+                    {
+                        // Lock while copying responses to avoid data race
+                        std::lock_guard<std::mutex> lock(responseMutex);
+                        jServVector->setVec(responses); // Directly assign vector here
+                    }
+
+                    // Show responses in textEdit
+                    ui->textEdit->clear();
+                    for (const auto& resp : responses) {
+                        ui->textEdit->append(QString::fromStdString(resp.dump(4)));
+                    }
+
+                    // Start building JSON with progress updates
+                    jServVector->buildGamesJSON();
+
+                    // Optional: print final JSON to debug
+                    qDebug() << QString::fromStdString(jServVector->exportJSON().dump(4));
+                }, Qt::QueuedConnection);
+            }
         });
     }
-
-
 }
 
 

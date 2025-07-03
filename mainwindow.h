@@ -2,7 +2,7 @@
 #define MAINWINDOW_H
 
 #include <QMainWindow>
-
+#include "Progresser.hpp"
 QT_BEGIN_NAMESPACE
 namespace Ui {
 class MainWindow;
@@ -31,6 +31,7 @@ private slots:
     void on_pushButton_6_clicked();
 
 private:
+    Progresser *progresser = nullptr;
     Ui::MainWindow *ui;
 };
 #endif // MAINWINDOW_H
