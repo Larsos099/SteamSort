@@ -19,10 +19,19 @@ public:
     ~MainWindow();
 
 private slots:
+    void startProcessing();  // new function for your heavy work
 
 private:
-    Progresser *progresser = nullptr;
-    JServVector* jServVector = nullptr;
     Ui::MainWindow *ui;
+    JServVector *jServVector;
+    Progresser *progresser = nullptr;
+
+    std::vector<json> responses;          // move from local to member
+    std::mutex responseMutex;             // keep this mutex as member
+
+    std::string AppData;
+    std::vector<json> jVec;
+    std::vector<std::string> steamLibLocations;
+    std::string steamURL = "https://store.steampowered.com/api/appdetails?appids=";
 };
 #endif // MAINWINDOW_H
