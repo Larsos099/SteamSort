@@ -31,7 +31,8 @@ private:
     std::function<void(int, int)> progressCallback;
 
 public:
-    explicit JServVector(std::vector<json> &jsonV) : jV(std::move(jsonV)) {}
+    explicit JServVector(std::vector<json> jsonV) : jV(std::move(jsonV)) {}
+
     JServVector() = default;
 
     void buildGamesJSON();

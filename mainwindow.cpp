@@ -18,6 +18,7 @@ json GamesJSON{};
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
     , ui(new Ui::MainWindow)
+    , jServVector(new JServVector())  // initialize here
 {
     const char* env = getenv("LOCALAPPDATA");
     if (env == nullptr) {
@@ -25,19 +26,20 @@ MainWindow::MainWindow(QWidget *parent)
         exit(2);
     }
     AppData = std::string(env);
-    JsonHandler jH("D:\\SteamLibrary\\steamapps");
+    JsonHandler jH("C:\\Program Files (x86)\\Steam\\steamapps");
     yeah = jH.parseAllManifests();
-    JsonHandler jHCDrive("C:\\Program Files (x86)\\Steam\\steamapps");
-    for(const auto &i : jHCDrive.parseAllManifests()) {
-        yeah.emplace_back(i);
-    }
     ui->setupUi(this);
 
 }
 std::string jsonPath = AppData + "\\SteamSort\\games.json";
 MainWindow::~MainWindow()
 {
+    delete jServVector;  // free it on destruction
     delete ui;
+    if (progresser) {
+        delete progresser;
+        progresser = nullptr;
+    }
 }
 json jsonObjForTest{};
 void MainWindow::on_pushButton_clicked()
@@ -94,38 +96,47 @@ void MainWindow::on_pushButton_6_clicked()
 {
     responses.clear();
     ui->textEdit->clear();
+
+    // Show progress bar or create it if not existing
     if (!progresser) {
-        progresser = new Progresser(300, 70, nullptr);  // nullptr parent means top-level window
-        progresser->setWindowModality(Qt::ApplicationModal); // Blocks input to other windows if you want
+        progresser = new Progresser(300, 70, nullptr);
+        progresser->setWindowModality(Qt::ApplicationModal);
         progresser->show();
         progresser->raise();
         progresser->setProgress(0);
     }
-    std::mutex responseMutex;
+
     std::atomic<int> doneCount{0};
-    int total = static_cast<int>(yeah.size());
+    const int total = static_cast<int>(yeah.size());
 
-    // Create JServVector with empty vector; we'll fill later
-    auto jServVector = new JServVector();
+    // Clear previous data in jServVector before new run
+    jServVector->clearJSON();
+    // We'll set responses after collecting
 
-    // Connect progressUpdated signal to your UI progress widget
+    // Connect signal for progress update once
     connect(jServVector, &JServVector::progressUpdated, this, [this](int done, int total){
         int percent = total ? (done * 100 / total) : 0;
-        // Example with QProgressBar
         progresser->setProgress(percent);
     });
 
-    Threader t(THREAD_DETACH);
 
-    for (const auto& element : yeah) {
-        t.run<void>([this, &element, &responseMutex, &doneCount, total, jServVector]() {
+    Threader t(THREAD_JOIN);  // Join to wait for threads to finish
+
+    // Mutex to protect responses vector
+    std::mutex responseMutex;
+
+    for (const auto &element : yeah) {
+        t.run<void>([this, &element, &responseMutex, &doneCount, total]() {
             std::string appID;
+
+            // get appid safely
             if (element["appid"].is_string()) {
                 appID = element["appid"].get<std::string>();
             } else if (element["appid"].is_number_integer()) {
                 appID = std::to_string(element["appid"].get<int>());
             } else {
                 qWarning() << "Invalid appid type!";
+                doneCount.fetch_add(1);
                 return;
             }
 
@@ -135,37 +146,29 @@ void MainWindow::on_pushButton_6_clicked()
 
             {
                 std::lock_guard<std::mutex> lock(responseMutex);
-                responses.emplace_back(res);
+                responses.emplace_back(std::move(res));
             }
 
-            int done = ++doneCount;
-
-            // Once all responses are collected, update UI and start processing JSON
-            if (done == total) {
-                // Update vector inside JServVector *safely* from UI thread
-                QMetaObject::invokeMethod(this, [this, jServVector, &responseMutex]() {
-                    {
-                        // Lock while copying responses to avoid data race
-                        std::lock_guard<std::mutex> lock(responseMutex);
-                        jServVector->setVec(responses); // Directly assign vector here
-                    }
-
-                    // Show responses in textEdit
-                    ui->textEdit->clear();
-                    for (const auto& resp : responses) {
-                        ui->textEdit->append(QString::fromStdString(resp.dump(4)));
-                    }
-
-                    // Start building JSON with progress updates
-                    jServVector->buildGamesJSON();
-
-                    // Optional: print final JSON to debug
-                    qDebug() << QString::fromStdString(jServVector->exportJSON().dump(4));
-                }, Qt::QueuedConnection);
-            }
+            doneCount.fetch_add(1);
         });
     }
+
+    // All threads joined here (THREAD_JOIN)
+    // Now update UI on main thread
+
+    QMetaObject::invokeMethod(this, [this]() {
+        ui->textEdit->clear();
+        for (const auto &resp : responses) {  // accesses global directly
+            ui->textEdit->append(QString::fromStdString(resp.dump(4)));
+        }
+        jServVector->setVec(responses);
+        jServVector->buildGamesJSON();
+        qDebug() << QString::fromStdString(jServVector->exportJSON().dump(4));
+        ui->textEdit->setText(QString::fromStdString(jServVector->exportJSON().dump(4)));
+    }, Qt::QueuedConnection);
+
 }
+
 
 
 

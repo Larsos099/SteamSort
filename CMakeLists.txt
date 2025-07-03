@@ -4,6 +4,7 @@ project(SteamSorter LANGUAGES CXX)
 find_package(Qt6 6.5 REQUIRED COMPONENTS Core Widgets)
 set(CMAKE_CXX_STANDARD 23)
 find_package(CURL REQUIRED)
+set(CMAKE_AUTOMOC ON)
 qt_standard_project_setup()
 qt_add_executable(SteamSorter
     WIN32 MACOSX_BUNDLE

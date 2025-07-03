@@ -111,3 +111,6 @@
     json JServVector::exportJSON() {
         return final;
     }
+    void JServVector::clearJSON() {
+        final = json();
+    }
